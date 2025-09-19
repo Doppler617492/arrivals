@@ -1,2 +1,7 @@
-arrivals-backend/
-arrivals-frontend/
+# Keep local build artifacts and OS files out of git
+.DS_Store
+Thumbs.db
+node_modules/
+*.log
+
+# Do not ignore project sources (arrivals-backend, arrivals-frontend) so we can version them

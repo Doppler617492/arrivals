@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./arrivals-backend
+      dockerfile: Dockerfile.dev
+    container_name: arrivals-backend
+    ports:
+      - "8081:8081"
+    environment:
+      # Allow the Vite dev origins
+      - ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174
+      - LOG_HTTP=1
+      # Use Postgres only (no SQLite)
+      - DATABASE_URL=postgresql+psycopg://arrivals:supersecretchangeit@host.docker.internal:5432/arrivals
+      # Optional admin seed (set real creds locally if desired)
+      - ADMIN_EMAIL=it@cungu.com
+      - ADMIN_PASSWORD=Dekodera19892603@@@
+      # Flask debug for verbose logs
+      - FLASK_DEBUG=1
+    volumes:
+      # Live-reload backend code in dev
+      - ./arrivals-backend:/app
+      # Persist uploads to local folder
+      - ./arrivals-backend/uploads:/app/uploads
+
+  frontend:
+    image: node:20-alpine
+    container_name: arrivals-frontend
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      # Point the browser to the host-exposed API/WS (not the container name)
+      - VITE_API_BASE=http://localhost:8081
+      - VITE_WS_URL=ws://localhost:8081/ws?v=1&topics=arrivals,containers
+      # WS backoff/keepalive (tunable)
+      - VITE_WS_BACKOFF_BASE_MS=1000
+      - VITE_WS_BACKOFF_MAX_MS=30000
+      - VITE_WS_KEEPALIVE_MS=20000
+    volumes:
+      - ./arrivals-frontend:/app
+      - /app/node_modules
+    ports:
+      - "5174:5173"
+    depends_on:
+      - backend
