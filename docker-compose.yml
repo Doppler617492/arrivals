@@ -10,10 +10,18 @@ services:
       - "8081:8081"
     environment:
       # Allow the Vite dev origins
-      - ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174
+      - ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
       - LOG_HTTP=1
+      - JWT_COOKIE_CSRF_PROTECT=1
       # Use Postgres only (no SQLite)
-      - DATABASE_URL=postgresql+psycopg://arrivals:supersecretchangeit@host.docker.internal:5432/arrivals
+      - DATABASE_URL=postgresql+psycopg://arrivals:supersecretchangeit@db:5432/arrivals
+      # S3-compatible storage (local MinIO)
+      - S3_BUCKET=arrivals
+      - S3_ENDPOINT=http://minio:9000
+      - S3_REGION=us-east-1
+      - S3_ACCESS_KEY=arrivalsminio
+      - S3_SECRET_KEY=arrivalsminiosecret
+      - S3_USE_SSL=0
       # Optional admin seed (set real creds locally if desired)
       - ADMIN_EMAIL=it@cungu.com
       - ADMIN_PASSWORD=Dekodera19892603@@@
@@ -25,6 +33,23 @@ services:
       # Persist uploads to local folder
       - ./arrivals-backend/uploads:/app/uploads
 
+  db:
+    image: postgres:16-alpine
+    container_name: arrivals-postgres
+    environment:
+      POSTGRES_DB: arrivals
+      POSTGRES_USER: arrivals
+      POSTGRES_PASSWORD: supersecretchangeit
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./arrivals-backend/data/pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arrivals -d arrivals"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   frontend:
     image: node:20-alpine
     container_name: arrivals-frontend
@@ -34,6 +59,7 @@ services:
       # Point the browser to the host-exposed API/WS (not the container name)
       - VITE_API_BASE=http://localhost:8081
       - VITE_WS_URL=ws://localhost:8081/ws?v=1&topics=arrivals,containers
+      - VITE_AUTH_COOKIES=1
       # WS backoff/keepalive (tunable)
       - VITE_WS_BACKOFF_BASE_MS=1000
       - VITE_WS_BACKOFF_MAX_MS=30000
@@ -42,6 +68,49 @@ services:
       - ./arrivals-frontend:/app
       - /app/node_modules
     ports:
-      - "5174:5173"
+      - "5173:5173"
     depends_on:
       - backend
+      - db
+
+  minio:
+    image: minio/minio:latest
+    container_name: arrivals-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: arrivalsminio
+      MINIO_ROOT_PASSWORD: arrivalsminiosecret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./arrivals-backend/data/minio:/data
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: arrivals-minio-init
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: arrivalsminio
+      MINIO_ROOT_PASSWORD: arrivalsminiosecret
+      S3_BUCKET: arrivals
+      MINIO_BUCKET_PUBLIC: "0"  # set to "1" to allow anonymous download
+    entrypoint: ["sh","-c"]
+    command:
+      - |
+        set -e
+        echo "[minio-init] Waiting for MinIO..."
+        until (mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD) >/dev/null 2>&1; do
+          sleep 2;
+        done
+        echo "[minio-init] Creating bucket '$$S3_BUCKET' (if missing)"
+        mc mb -p local/$$S3_BUCKET >/dev/null 2>&1 || true
+        if [ "$$MINIO_BUCKET_PUBLIC" = "1" ]; then
+          echo "[minio-init] Setting anonymous download policy for '$$S3_BUCKET'"
+          mc anonymous set download local/$$S3_BUCKET >/dev/null 2>&1 || true
+        else
+          echo "[minio-init] Leaving bucket private"
+        fi
+        echo "[minio-init] Done"
+    restart: "no"

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: arrivals
+          POSTGRES_USER: arrivals
+          POSTGRES_PASSWORD: supersecretchangeit
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arrivals -d arrivals" 
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install backend deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r arrivals-backend/requirements.txt
+      - name: Lint & type-check (backend)
+        env:
+          DATABASE_URL: postgresql+psycopg://arrivals:supersecretchangeit@localhost:5432/arrivals
+        run: |
+          black --check arrivals-backend
+          flake8 arrivals-backend
+          mypy arrivals-backend
+      - name: Tests (backend)
+        env:
+          DATABASE_URL: postgresql+psycopg://arrivals:supersecretchangeit@localhost:5432/arrivals
+        run: |
+          pytest -q arrivals-backend
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: arrivals-frontend/package-lock.json
+      - name: Install frontend deps
+        working-directory: arrivals-frontend
+        run: npm ci
+      - name: Lint (frontend)
+        working-directory: arrivals-frontend
+        run: npm run lint
+      - name: Prettier check (frontend)
+        working-directory: arrivals-frontend
+        run: npx prettier -c .
+      - name: Tests (frontend)
+        working-directory: arrivals-frontend
+        run: npm test -- --run
+

@@ -1,0 +1,63 @@
+repos:
+  # Python format/lint/type
+  - repo: https://github.com/psf/black
+    rev: 24.8.0
+    hooks:
+      - id: black
+        files: ^arrivals-backend/
+        args: ["--line-length=100"]
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        files: ^arrivals-backend/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        files: ^arrivals-backend/
+        args: ["--config-file=arrivals-backend/mypy.ini"]
+
+  # Run backend tests quickly before commit
+  - repo: local
+    hooks:
+      - id: pytest-backend
+        name: pytest-backend
+        language: system
+        pass_filenames: false
+        stages: [commit]
+        entry: bash -lc "cd arrivals-backend && pytest -q"
+
+  # Frontend lint/format using local Node (requires Node available)
+  - repo: local
+    hooks:
+      - id: eslint-frontend
+        name: eslint-frontend
+        language: system
+        types_or: [ts, tsx, js, jsx]
+        files: ^arrivals-frontend/.*\.(ts|tsx|js|jsx)$
+        entry: bash -lc "cd arrivals-frontend && npx eslint --max-warnings=0 --fix"
+      - id: prettier-frontend
+        name: prettier-frontend
+        language: system
+        types_or: [ts, tsx, js, jsx, css, scss, json, md, yml, yaml]
+        files: ^arrivals-frontend/.*\.(ts|tsx|js|jsx|css|scss|json|md|yml|yaml)$
+        entry: bash -lc "cd arrivals-frontend && npx prettier -w"
+
+  # Pre-push: run full tests for both back and front
+  - repo: local
+    hooks:
+      - id: pre-push-backend-tests
+        name: pre-push-backend-tests
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        entry: bash -lc "cd arrivals-backend && pytest -q"
+      - id: pre-push-frontend-tests
+        name: pre-push-frontend-tests
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        entry: bash -lc "cd arrivals-frontend && npm test -- --run"
